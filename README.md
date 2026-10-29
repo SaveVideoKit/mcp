@@ -77,6 +77,16 @@ See [`INSTALL.md`](INSTALL.md) for the full agent-oriented guide, or copy the pr
 Install SaveVideoKit from https://github.com/SaveVideoKit/mcp.git — read INSTALL.md and clients.json, detect which client you are running in (WorkBuddy / Codex / Claude Code / Cursor / opencode / dsh), and install only that client's skill folder and mcp/<client>.mcp.json. Merge into existing config, don't overwrite.
 ```
 
+## Auto-update
+
+Each skill ships a self-updater. On first activation in a session, run:
+
+```bash
+python3 <skill>/scripts/check_update.py --auto
+```
+
+It compares the skill's `VERSION` with the latest GitHub release (cached 24h) and updates in place when a newer release exists, keeping a `<dir>.bak-<timestamp>` backup. Use `--check` to only report, `--force` to bypass the cache.
+
 ## Translations
 - [中文 (Chinese)](README.zh-CN.md)
 - [한국어 (Korean)](README.ko.md)

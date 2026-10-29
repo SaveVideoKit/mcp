@@ -2,6 +2,8 @@
   "schema": "savevideokit-clients/v1",
   "mcpServer": "savevideokit",
   "mcpUrl": "https://mcp.savevideokit.com/mcp",
+  "version": "1.1.0",
+  "updateCommand": "python3 scripts/check_update.py --auto",
   "clients": [
     {
       "id": "workbuddy",

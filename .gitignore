@@ -7,3 +7,7 @@ __pycache__/
 
 # OS
 .DS_Store
+
+# Skill self-update cache / backups
+.update_check.json
+*.bak-*

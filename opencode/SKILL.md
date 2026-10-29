@@ -58,3 +58,13 @@ See `references/constraints.md` for the platform overview (open list), URL patte
 ## Resources
 - `scripts/download_file.py` — robust stdlib-only downloader (streaming, safe filename, progress output).
 - `references/constraints.md` — platform overview and limits.
+
+## Keeping up to date
+
+On first activation in a session, check for a newer release and auto-update this skill:
+
+```
+python3 <skill>/scripts/check_update.py --auto
+```
+
+This compares this skill's `VERSION` with the latest GitHub release of SaveVideoKit/mcp (cached 24h) and updates in place when a newer release exists, keeping a `<dir>.bak-<timestamp>` backup. Use `--check` to only report, `--force` to bypass the cache.

@@ -77,6 +77,16 @@ SaveVideoKit MCP **只返回 `download_url`，不会把文件存到本地**，�
 请从 https://github.com/SaveVideoKit/mcp.git 安装 SaveVideoKit：先读 INSTALL.md 和 clients.json，判断你当前运行在哪个客户端（WorkBuddy / Codex / Claude Code / Cursor / opencode / dsh），只安装该客户端对应的技能目录和 mcp/<client>.mcp.json；合并进现有配置，不要覆盖。
 ```
 
+## 自动更新
+
+每个技能内置自更新器。技能首次激活时运行：
+
+```bash
+python3 <skill>/scripts/check_update.py --auto
+```
+
+它会将技能 `VERSION` 与 GitHub 最新 Release 比对（缓存 24 小时），有新版则就地更新并保留带时间戳的备份。`--check` 仅报告，`--force` 跳过缓存。
+
 ## 其它语言
 - [English](README.md)
 - [한국어 (Korean)](README.ko.md)
