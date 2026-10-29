@@ -1,0 +1,29 @@
+---
+description: Download and inspect public videos/audio via the SaveVideoKit remote MCP server (YouTube, TikTok, Instagram, X, Reddit, Vimeo, and 1000+ sites). Use when the user gives a public video/audio URL to save or inspect.
+globs:
+alwaysApply: false
+---
+
+# SaveVideoKit — public video / audio download & inspect
+
+Use the `savevideokit` MCP server to download or inspect public videos/audio. No API key required.
+
+## Tools
+- `inspect_video({url})` → metadata + available formats
+- `create_download({url, format?, quality?})` → `job_id`
+- `get_download_status({job_id})` → `{status, progress, download_url}`
+- `get_supported_sites({})` → supported platforms
+
+## Workflow
+1. (Optional) `inspect_video` to show title and formats.
+2. `create_download({url, format: "mp4"})`, parse `job_id`.
+3. Poll `get_download_status` every ~5s until `success` / `failed` / `expired`.
+4. On success, take `download_url` and **immediately save the bytes** with `scripts/download_file.py` (the MCP only returns a URL; files are kept ~2h).
+5. Verify the saved file exists and size > 0.
+
+## Limits
+- Public content only; no private/age-restricted/region-locked; no watermark removal; no playlists/batch.
+- No platform gate: any public URL can be attempted.
+- If a `download_url` expires, create a new `create_download` task.
+
+See `references/constraints.md` for details.

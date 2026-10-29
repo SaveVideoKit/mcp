@@ -1,0 +1,9 @@
+# Internal project data
+.workbuddy/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

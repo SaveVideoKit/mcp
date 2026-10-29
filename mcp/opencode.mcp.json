@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "savevideokit": {
+      "type": "remote",
+      "url": "https://mcp.savevideokit.com/mcp",
+      "enabled": true
+    }
+  }
+}

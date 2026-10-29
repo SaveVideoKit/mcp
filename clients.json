@@ -1,0 +1,73 @@
+{
+  "schema": "savevideokit-clients/v1",
+  "mcpServer": "savevideokit",
+  "mcpUrl": "https://mcp.savevideokit.com/mcp",
+  "clients": [
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "skillDir": "workbuddy",
+      "skillFormat": "skill-md",
+      "skillTarget": "~/.workbuddy/skills/savevideokit",
+      "mcpConfigFile": "mcp/workbuddy.mcp.json",
+      "mcpFormat": "mcpServers-json",
+      "mcpTarget": "~/.workbuddy/mcp.json",
+      "setup": "bash mcp/setup.sh workbuddy"
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "skillDir": "codex",
+      "skillFormat": "skill-md",
+      "skillTarget": "~/.codex/skills/savevideokit",
+      "mcpConfigFile": "mcp/codex.mcp.json",
+      "mcpFormat": "mcpServers-json",
+      "mcpTarget": "~/.codex/codex.json",
+      "setup": "bash mcp/setup.sh codex"
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "skillDir": "claude-code",
+      "skillFormat": "skill-md",
+      "skillTarget": "~/.claude/skills/savevideokit",
+      "mcpConfigFile": "mcp/claude-code.mcp.json",
+      "mcpFormat": "mcpServers-json",
+      "mcpTarget": ".mcp.json (project) or ~/.claude.json",
+      "setup": "bash mcp/setup.sh claude-code"
+    },
+    {
+      "id": "cursor",
+      "name": "Cursor",
+      "skillDir": "cursor",
+      "skillFormat": "cursor-rule-mdc",
+      "skillTarget": ".cursor/rules/savevideokit.mdc",
+      "mcpConfigFile": "mcp/cursor.mcp.json",
+      "mcpFormat": "mcpServers-json",
+      "mcpTarget": ".cursor/mcp.json (project) or ~/.cursor/mcp.json",
+      "setup": "bash mcp/setup.sh cursor"
+    },
+    {
+      "id": "opencode",
+      "name": "opencode",
+      "skillDir": "opencode",
+      "skillFormat": "skill-md",
+      "skillTarget": ".opencode/skills/savevideokit (or ~/.config/opencode/skills/savevideokit)",
+      "mcpConfigFile": "mcp/opencode.mcp.json",
+      "mcpFormat": "opencode-mcp-json",
+      "mcpTarget": "opencode.json (project) or ~/.config/opencode/opencode.json",
+      "setup": "bash mcp/setup.sh opencode"
+    },
+    {
+      "id": "dsh",
+      "name": "dsh",
+      "skillDir": "dsh",
+      "skillFormat": "skill-md",
+      "skillTarget": "client-specific (manual)",
+      "mcpConfigFile": "mcp/dsh.mcp.json",
+      "mcpFormat": "mcpServers-json",
+      "mcpTarget": "client-specific (manual)",
+      "setup": "bash mcp/setup.sh dsh"
+    }
+  ]
+}

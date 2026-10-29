@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "savevideokit": {
+      "type": "http",
+      "url": "https://mcp.savevideokit.com/mcp"
+    }
+  }
+}
