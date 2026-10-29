@@ -18,7 +18,7 @@ Use the `savevideokit` MCP server to download or inspect public videos/audio. No
 1. (Optional) `inspect_video` to show title and formats.
 2. `create_download({url, format: "mp4"})`, parse `job_id`.
 3. Poll `get_download_status` every ~5s until `success` / `failed` / `expired`.
-4. On success, take `download_url` and **immediately save the bytes** with `scripts/download_file.py` (the MCP only returns a URL; files are kept ~2h).
+4. On success, take `download_url` and **immediately save the bytes** with `scripts/download_file.py --name "<video title>"` so the file is saved under the video title (never a random id); the MCP only returns a URL and files are kept ~2h.
 5. Verify the saved file exists and size > 0.
 
 ## Limits

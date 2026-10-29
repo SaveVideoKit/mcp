@@ -18,17 +18,18 @@ UA = "savevideokit-cli/1.0 (+https://www.savevideokit.com)"
 
 
 def safe_name(name, fallback):
-    """Build a filesystem-safe filename from an arbitrary title."""
+    """Build a readable, filesystem-safe filename from a video title."""
     if not name:
         return fallback
     keep = []
-    for ch in name:
-        if ch.isalnum() or ch in (" ", "-", "_", "."):
+    for ch in str(name):
+        if ch.isalnum() or ch in (" ", "-", "_", ".", "(", ")", "[", "]", "&", "+"):
             keep.append(ch)
         else:
-            keep.append("_")
-    s = "".join(keep).strip().replace(" ", "_")
-    return s[:120] or fallback
+            keep.append(" ")
+    s = " ".join("".join(keep).split())
+    s = s.strip(" ._")[:120].strip(" ._")
+    return s or fallback
 
 
 def ext_of(url, default=".mp4"):
@@ -45,14 +46,17 @@ def main():
     p = argparse.ArgumentParser(description="Save a SaveVideoKit download_url to local disk")
     p.add_argument("url", help="download_url returned by get_download_status")
     p.add_argument("out_dir", help="target directory")
-    p.add_argument("--name", default="", help="preferred base filename (without extension)")
+    p.add_argument("--name", "--title", dest="name", default="",
+                   help="video title used as the base filename (without extension)")
     p.add_argument("--timeout", type=int, default=180, help="download timeout seconds")
     args = p.parse_args()
 
     out = os.path.abspath(args.out_dir)
     os.makedirs(out, exist_ok=True)
     ext = ext_of(args.url)
-    base = safe_name(args.name, "savevideokit_video")
+    base = safe_name(args.name, "video")
+    if not args.name:
+        sys.stderr.write("[warn] no --name/--title provided; saving as '%s%s'\n" % (base, ext))
     dest = os.path.join(out, base + ext)
 
     req = urllib.request.Request(args.url, headers={"User-Agent": UA})

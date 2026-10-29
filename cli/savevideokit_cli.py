@@ -28,6 +28,7 @@ Notes:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -190,17 +191,59 @@ def _download_file(url, dest, timeout=180):
     return written, total
 
 
-def _safe_filename(name, fallback):
+def _sanitize(name, fallback="video"):
+    """Build a readable, filesystem-safe filename from a video title."""
     if not name:
         return fallback
     keep = []
-    for ch in name:
-        if ch.isalnum() or ch in (" ", "-", "_", "."):
+    for ch in str(name):
+        if ch.isalnum() or ch in (" ", "-", "_", ".", "(", ")", "[", "]", "&", "+"):
             keep.append(ch)
         else:
-            keep.append("_")
-    s = "".join(keep).strip().replace(" ", "_")
-    return s[:120] or fallback
+            keep.append(" ")
+    s = re.sub(r"\s+", " ", "".join(keep)).strip(" ._")
+    s = s[:120].strip(" ._")
+    return s or fallback
+
+
+def _extract_title(info):
+    """Best-effort extraction of the video title from an inspect_video result."""
+    if isinstance(info, dict):
+        sc = info.get("structuredContent")
+        if isinstance(sc, dict):
+            t = sc.get("title") or (sc.get("metadata") or {}).get("title")
+            if t:
+                return str(t).strip()
+    text = _text_of(info)
+    m = re.search(r"(?im)^\s*(?:title|标题|タイトル|제목)\s*[:：]\s*(.+?)\s*$", text)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r'"title"\s*:\s*"([^"]+)"', text)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _derive_name_from_url(url):
+    """Deterministic, meaningful fallback name from the source URL (never random)."""
+    try:
+        from urllib.parse import urlparse, parse_qs
+        p = urlparse(url)
+        q = parse_qs(p.query)
+        if q.get("v"):
+            return "youtube_" + q["v"][0]
+        segs = [s for s in p.path.split("/") if s]
+        if segs:
+            last = segs[-1]
+            if "." in last:
+                last = last.rsplit(".", 1)[0]
+            host = p.netloc.replace("www.", "").split(".")[0]
+            host = {"youtu": "youtube", "twitter": "x"}.get(host, host)
+            if last:
+                return (host + "_" + last) if host else last
+    except Exception:
+        pass
+    return "video"
 
 
 def cmd_list_sites(client):
@@ -222,13 +265,8 @@ def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout
     text = _text_of(info)
     print(text)
 
-    # Try to read the title from the structured result (used for naming)
-    title = None
-    try:
-        sc = info.get("structuredContent", {})
-        title = sc.get("title") or sc.get("metadata", {}).get("title")
-    except Exception:
-        title = None
+    # Resolve a readable filename base from the video title (never a random id)
+    title = _extract_title(info)
     print("-" * 60)
 
     print("[2/4] Creating download task ...")
@@ -271,7 +309,8 @@ def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout
     ext = ".mp4"
     if "." in download_url.split("?")[0].split("/")[-1]:
         ext = "." + download_url.split("?")[0].rsplit(".", 1)[-1].split("/")[-1][:8]
-    fname = _safe_filename(title, job_id) + ext
+    base = title or _derive_name_from_url(url)
+    fname = _sanitize(base, "video") + ext
     dest = out_dir / fname
     written, total = _download_file(download_url, dest)
     size = written / 1024 / 1024

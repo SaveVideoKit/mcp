@@ -38,7 +38,7 @@ Run the downloader:
 ```
 python3 <skill>/scripts/download_file.py "<download_url>" "<output_dir>" --name "<title>"
 ```
-It derives a safe filename (sanitized, ≤120 chars, correct extension) and prints the final path. Replace `<skill>` with this skill's directory.
+Always pass the video title returned by `inspect_video` as `--name` so the file is saved under the video title (never a random id). If the title is unavailable, a deterministic name derived from the URL is used instead. It sanitizes the title into a safe filename (≤120 chars, correct extension) and prints the final path. Replace `<skill>` with this skill's directory.
 
 ## Workflow: Inspect only
 Call `inspect_video({url})` and present the returned text / `structuredContent`.
