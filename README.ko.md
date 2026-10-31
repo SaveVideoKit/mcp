@@ -59,9 +59,6 @@ python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
 
-# 직접 옵션이 있어도 create_download 작업 경로를 강제
-python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
-
 # 지원 플랫폼 목록 보기
 python3 cli/savevideokit_cli.py --list-sites
 ```
@@ -69,6 +66,8 @@ python3 cli/savevideokit_cli.py --list-sites
 > `scripts/download_file.py`와의 역할 분담: `savevideokit_cli.py`는 "MCP 프로토콜을 구사하며 전체 흐름을 실행"하고, `download_file.py`는 "download_url을 받은 후 바이트를 디스크에 저장"하는 단계만 담당합니다. 둘은 독립적으로 사용할 수 있습니다.
 
 ## 다운로드 정책(반드시 유지)
+
+**0. 로컬 미디어 추출 금지.** 페이지 해석, 소스 스트림 다운로드, 음성·영상 병합은 원격 SaveVideoKit MCP에서 수행합니다. 로컬 `yt-dlp` / `youtube-dl` / `ffmpeg`를 설치하거나 실행하지 마십시오. `curl -L`, `wget`, PowerShell, Python HTTP는 MCP가 반환한 최종 `download_url`을 저장하는 데만 사용합니다.
 
 **1. 직접 다운로드 우선(기본).** `inspect_video`는 `direct_download_available` / `direct_options[]`를 반환하고, 그 `download_url`은 `302`로 **소스 CDN의 원본 미디어 파일**로 리디렉션됩니다. 바이트는 소스에서 곧바로 로컬로 흐르며 서버 측 다운로드·병합·저장은 전혀 없습니다. **`direct_options`가 비어 있지 않다면 반드시 이 경로를 사용합니다**(`create_download`도, 폴링도, 보관 기한도 없음).
 

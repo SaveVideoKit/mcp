@@ -20,6 +20,7 @@ SaveVideoKit/
 ├── opencode/                 # opencode 技能（SKILL.md）
 ├── dsh/                      # dsh 技能（脚手架）
 ├── mcp/                      # 各客户端 MCP 配置片段 + setup.sh
+│   ├── SERVER_CONTRACT.md       # 服务端 instructions / 工具描述强制契约
 │   ├── setup.sh              # workbuddy|codex|claude-code|cursor|opencode|dsh|all
 │   ├── workbuddy.mcp.json
 │   ├── codex.mcp.json
@@ -59,9 +60,6 @@ python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
 
-# 即使有直连选项，也强制走 create_download 任务路径
-python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
-
 # 列出已验证支持的平台
 python3 cli/savevideokit_cli.py --list-sites
 ```
@@ -69,6 +67,9 @@ python3 cli/savevideokit_cli.py --list-sites
 > 与技能内 `scripts/download_file.py` 的分工：`savevideokit_cli.py` 负责「说 MCP 协议跑完整流程」；`download_file.py` 只负责「拿到 download_url 后把字节落盘」这一步。两者可独立使用。
 
 ## 下载策略（务必保留）
+
+**0. 禁止本地解析。** 视频页面解析、源流下载和视音频合并只能由远端 SaveVideoKit MCP 执行。绝不安装或调用本地 `yt-dlp` / `youtube-dl` / `ffmpeg`。本地 `curl -L`、`wget`、PowerShell 或 Python HTTP 代码只能保存 MCP 返回的最终 `download_url`，不能用来解析原始视频页面。
+只接入 MCP 而不安装技能的客户端，还必须在服务端部署 [`mcp/SERVER_CONTRACT.md`](mcp/SERVER_CONTRACT.md) 中的 `initialize.instructions` 和工具描述。
 
 **1. 优先直连（默认）。** `inspect_video` 返回 `direct_download_available` / `direct_options[]`，其中的 `download_url` 以 `302` 跳转到**源站 CDN 上的原始媒体文件**——字节从源站直接到本地，服务端不下载、不合并、不存储。**只要 `direct_options` 非空就必须走这条路**：不建 `create_download`、不轮询、没有保留期限。
 

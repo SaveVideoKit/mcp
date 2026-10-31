@@ -51,6 +51,10 @@ Confirm the `savevideokit` MCP server is registered and exposes the tools
 `inspect_video`, `create_download`, `get_download_status`, `get_supported_sites`.
 Then try: "download this video <URL>".
 
+The expected implementation must never install or run local `yt-dlp`, `youtube-dl`, or
+`ffmpeg`. All page resolution and muxing stays on the remote MCP service. Local programs
+may only perform a plain HTTP transfer after MCP returns a direct option or job URL.
+
 A healthy `inspect_video` response contains `direct_download_available` and, when the
 source allows it, `direct_options[]`. That is the preferred path: the URL redirects to the
 original file on the source CDN, so the download needs no server-side job. If

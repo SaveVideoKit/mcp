@@ -1,10 +1,26 @@
 ---
 name: savevideokit
-description: Download and inspect public videos/audio from 1000+ sites via the SaveVideoKit remote MCP server. Supports YouTube, TikTok, Twitter/X, Instagram, Facebook, Reddit, Vimeo, Dailymotion, Twitch, Bilibili, SoundCloud, Bluesky/bsky.app, Pornhub, and many more — NOT limited to a fixed platform list. Use when the user provides a public video/audio URL and wants to save it to local disk, inspect its metadata/formats, or list supported platforms. Triggers include "下载这个视频", "save this video", "get the mp4 for this link", "savevideokit 支持哪些平台", "この動画をダウンロード", "動画を保存", "mp4を取得", "savevideokit 対応サイト", "이 동영상 다운로드", "동영상 저장", "mp4 받기", "savevideokit 지원 사이트".
+description: Download and inspect public videos/audio from 1000+ sites through the SaveVideoKit remote MCP server. Always use the remote MCP for URL extraction and audio/video merging; never install or run local yt-dlp or ffmpeg. Use a plain local HTTP client only to save the final URL returned by the MCP. Supports YouTube, TikTok, Twitter/X, Instagram, Facebook, Reddit, Vimeo, Dailymotion, Twitch, Bilibili, SoundCloud, Bluesky/bsky.app, Pornhub, and many more — NOT limited to a fixed platform list. Triggers include "下载这个视频", "save this video", "get the mp4 for this link", "savevideokit 支持哪些平台", "この動画をダウンロード", "動画を保存", "mp4を取得", "savevideokit 対応サイト", "이 동영상 다운로드", "동영상 저장", "mp4 받기", "savevideokit 지원 사이트".
 agent_created: true
 ---
 
 # SaveVideoKit — Public Video / Audio Download & Inspect
+
+## Execution boundary — non-negotiable
+
+SaveVideoKit is the media resolver. Local programs are byte-transfer clients only.
+
+- **Remote MCP only for resolving, selecting, downloading source streams, and muxing.** Start with `inspect_video`; when it reports no complete file, use `create_download` and let the cloud service merge the streams.
+- **Never search for, clone, install, import, or execute local `yt-dlp`, `youtube-dl`, `ffmpeg`, or another site extractor/downloader.** This remains forbidden even if one is already installed or present elsewhere on disk.
+- **Never pass the original webpage URL to `curl`, `wget`, PowerShell, or a Python HTTP downloader.** Those clients may receive only a `direct_options[].download_url` or a successful job's `download_url`.
+- Local saving may use `scripts/download_file.py`, `curl -L`, `wget`, PowerShell `Invoke-WebRequest`, or equivalent plain HTTP transfer. These tools follow the final URL; they do not resolve the video page.
+- If the SaveVideoKit MCP tools are unavailable, stop and explain how to enable the connector. Do not silently replace the MCP with a local downloader.
+
+For the least model-dependent execution path, run the bundled zero-dependency orchestrator. It speaks MCP directly and enforces the branch in code:
+
+```
+python3 <skill>/scripts/save_video.py "<public-video-url>" --output "<output-dir>"
+```
 
 ## Download policy — mandatory
 
@@ -43,11 +59,15 @@ Use `create_download` **only when the source exposes no complete, directly fetch
 | every `formats[].direct_eligible == false` | no single format qualifies |
 | `direct_reason: requires_headers` | CDN only serves the file with the page's Referer/UA (typical of TikTok) — a plain fetch cannot work |
 | `direct_reason: not_mp4` | audio-only or an incompatible container; a playable mp4 must be produced |
+| `direct_reason: no_audio` | video-only adaptive stream; the cloud service must add audio |
+| `direct_reason: no_video` | audio-only stream; it is not a complete video file |
 
 These are exactly the "no real download address, a merge is needed" cases. Only then take the relay: `create_download` → poll → save (see the workflow below).
 
 ### 3. Anti-patterns — never do these
 
+- Installing or running local `yt-dlp`, `youtube-dl`, `ffmpeg`, or another media extractor as a fallback.
+- Giving the original YouTube/TikTok/etc. webpage URL to a local HTTP client. Only MCP-returned download URLs are fetchable media.
 - Calling `create_download` before reading `direct_download_available` / `direct_options`.
 - Relaying because "the user asked for an mp4" — a direct option **is already** a complete playable mp4.
 - Relaying because the direct URL looks long or opaque — signed tokens are normal and expected.
@@ -73,7 +93,7 @@ This skill orchestrates the SaveVideoKit remote MCP server (`https://mcp.savevid
 - Do NOT use for private, login-gated, age-restricted or region-locked content, or for watermark removal.
 
 ## Prerequisites
-- The `savevideokit` MCP server must be enabled, configured in `~/.workbuddy/mcp.json` (type `http`, url `https://mcp.savevideokit.com/mcp`). If `inspect_video` / `create_download` / `get_download_status` / `get_supported_sites` are unavailable, ask the user to open 连接器 → 自定义连接器 → MCP 服务管理, locate `savevideokit`, click 信任, enable it, then start a fresh session.
+- The `savevideokit` MCP server must be enabled in the current client with type `http` and URL `https://mcp.savevideokit.com/mcp`. Use that client's corresponding config from this repository. If `inspect_video` / `create_download` / `get_download_status` / `get_supported_sites` are unavailable, ask the user to enable/trust the `savevideokit` connector in the current client and start a fresh session. Never substitute a local media downloader.
 - No API key or login is required.
 
 ## Tools (provided by the MCP server)
@@ -95,6 +115,8 @@ This skill orchestrates the SaveVideoKit remote MCP server (`https://mcp.savevid
      The script follows the 302 to the source CDN. Do **not** call `create_download`, do **not** poll, do **not** say "processing".
    - **`direct_options` empty → RELAY.** `create_download({url, format: "mp4", quality: ""})`, parse `job_id` from `structuredContent` (fallback: regex `job_id` in the text), poll `get_download_status` every 5s until `success` / `failed` / `error` / `expired` (deadline 300s, same `job_id`), then save the returned `download_url` with the same script (`--name "<title>" --ext mp4`).
 3. Verify the saved file exists and has size > 0; report the local path and which path was used.
+
+Example: if a YouTube inspection returns `direct_options: []` and MP4 formats have `direct_reason: "no_audio"`, do not attempt local merging. Call `create_download` immediately; the cloud service downloads and muxes the separate streams.
 
 ## The downloader
 ```
@@ -120,6 +142,7 @@ Call `get_supported_sites({})` and summarize. Make clear the returned list is a 
 See `references/constraints.md` for the platform list, direct-download details and known limits.
 
 ## Resources
+- `scripts/save_video.py` — preferred zero-dependency end-to-end runner (MCP inspect → direct or cloud queue → local save); it never uses local media extraction tools.
 - `scripts/download_file.py` — stdlib-only downloader (redirects, extension detection, safe naming, progress).
 - `references/constraints.md` — platforms, direct options, retention and limits.
 

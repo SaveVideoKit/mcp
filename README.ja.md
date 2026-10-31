@@ -59,9 +59,6 @@ python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
 
-# 直接オプションがあっても create_download ジョブ経路を強制
-python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
-
 # 対応プラットフォーム一覧を表示
 python3 cli/savevideokit_cli.py --list-sites
 ```
@@ -69,6 +66,8 @@ python3 cli/savevideokit_cli.py --list-sites
 > `scripts/download_file.py` との役割分担：`savevideokit_cli.py` は「MCP プロトコルを話して全体フローを実行」し、`download_file.py` は「download_url を取得した後のバイト列のディスク保存」のみを担います。両者は独立して利用可能です。
 
 ## ダウンロード方針（必ず維持）
+
+**0. ローカル解析は禁止。** ページ解析、ソースストリームの取得、音声・映像のマージはリモート SaveVideoKit MCP で実行します。ローカルの `yt-dlp` / `youtube-dl` / `ffmpeg` はインストールも実行もしません。`curl -L`、`wget`、PowerShell、Python HTTP は MCP が返す最終 `download_url` の保存にのみ使用します。
 
 **1. 直接ダウンロードを優先（既定）。** `inspect_video` は `direct_download_available` / `direct_options[]` を返し、その `download_url` は `302` で**ソース CDN 上の元メディアファイル**へリダイレクトします。バイト列はソースから直接ローカルへ流れ、サーバー側のダウンロード・マージ・保存は一切ありません。**`direct_options` が空でない限り、必ずこの経路を使います**（`create_download` もポーリングも不要、保持期限もなし）。
 

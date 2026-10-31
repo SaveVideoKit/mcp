@@ -16,6 +16,11 @@ This is a thin Streamable HTTP client for the remote MCP endpoint:
     https://mcp.savevideokit.com/mcp
 No API key / OAuth / login required.
 
+Media resolution and muxing are always performed by the remote MCP service. This client
+never imports, installs, or executes yt-dlp, youtube-dl, ffmpeg, or another local media
+extractor. Its only local media operation is a plain HTTP transfer of a final URL returned
+by the MCP service.
+
 Examples:
     # 1) Inspect only (no download)
     python savevideokit_cli.py --inspect-only "https://www.youtube.com/shorts/xxxx"
@@ -24,10 +29,7 @@ Examples:
     python savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
     python savevideokit_cli.py "https://www.youtube.com/watch?v=xxxx" --quality 1080p
 
-    # 3) Force the create_download job path even when a direct option exists
-    python savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
-
-    # 4) List platforms verified by the service
+    # 3) List platforms verified by the service
     python savevideokit_cli.py --list-sites
 
 Notes:
@@ -327,7 +329,7 @@ def cmd_inspect(client, url):
     print(_text_of(res))
 
 
-def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout, allow_direct=True):
+def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -344,7 +346,7 @@ def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout
     print("-" * 60)
 
     # Preferred path: a direct option points at the original file on the source CDN.
-    option = _pick_direct_option(sc, quality, fmt) if allow_direct else None
+    option = _pick_direct_option(sc, quality, fmt)
     if option:
         ext = "." + str(option.get("ext") or "mp4").lstrip(".")
         h = option.get("height") or 0
@@ -367,10 +369,7 @@ def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout
         print("      Fetched straight from the source CDN - the service stored nothing.")
         return
 
-    if allow_direct:
-        print("[2/3] No direct source URL for this link - falling back to a download job ...")
-    else:
-        print("[2/3] Direct options skipped (--no-direct) - using a download job ...")
+    print("[2/3] No complete source file for this link - using the cloud merge queue ...")
     created = client.create(url, fmt=fmt, quality=quality)
     created_sc = created.get("structuredContent", {}) if isinstance(created, dict) else {}
     job_id = created_sc.get("job_id") or created_sc.get("id")
@@ -438,8 +437,6 @@ def main():
     p.add_argument("--format", default="mp4", help="Output format mp4/best or a format selector (default mp4)")
     p.add_argument("--quality", default="", help="Upper quality bound, e.g. 1080p/720p/480p")
     p.add_argument("--output", default="./downloads", help="Output directory (default ./downloads)")
-    p.add_argument("--no-direct", action="store_true",
-                   help="Skip direct_options and always use the create_download job path")
     p.add_argument("--poll-interval", type=float, default=5.0, help="Poll interval in seconds (default 5)")
     p.add_argument("--poll-timeout", type=float, default=300.0, help="Poll timeout in seconds (default 300)")
     p.add_argument("--mcp-url", default=MCP_URL, help="MCP endpoint (defaults to the official address)")
@@ -460,7 +457,6 @@ def main():
             cmd_download(
                 client, args.url, args.format, args.quality,
                 args.output, args.poll_interval, args.poll_timeout,
-                allow_direct=not args.no_direct,
             )
     except MCPError as e:
         print(f"[Error] {e}", file=sys.stderr)

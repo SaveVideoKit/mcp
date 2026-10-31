@@ -20,6 +20,7 @@ SaveVideoKit/
 ├── opencode/                 # opencode skill (SKILL.md)
 ├── dsh/                      # dsh skill (scaffold)
 ├── mcp/                      # Per-client MCP config snippets + setup.sh
+│   ├── SERVER_CONTRACT.md       # Mandatory server instructions / tool-description contract
 │   ├── setup.sh              # workbuddy|codex|claude-code|cursor|opencode|dsh|all
 │   ├── workbuddy.mcp.json
 │   ├── codex.mcp.json
@@ -59,9 +60,6 @@ python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
 
-# Force the create_download job path even if a direct option exists
-python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
-
 # List verified supported platforms
 python3 cli/savevideokit_cli.py --list-sites
 ```
@@ -69,6 +67,9 @@ python3 cli/savevideokit_cli.py --list-sites
 > Division of labor vs `scripts/download_file.py`: `savevideokit_cli.py` "speaks the MCP protocol and runs the full flow"; `download_file.py` only "fetches the bytes once a download_url is obtained". They can be used independently.
 
 ## Download policy (must keep)
+
+**0. No local media extraction.** Page resolution, source-stream downloading and audio/video muxing belong exclusively to the remote SaveVideoKit MCP service. Never install or invoke local `yt-dlp`, `youtube-dl` or `ffmpeg`. Local `curl -L`, `wget`, PowerShell or Python HTTP code may only save the final `download_url` returned by MCP; it must never resolve the original video webpage.
+Hosts that connect to MCP without installing a skill must also deploy the `initialize.instructions` and tool descriptions in [`mcp/SERVER_CONTRACT.md`](mcp/SERVER_CONTRACT.md).
 
 **1. Direct first.** `inspect_video` reports `direct_download_available` / `direct_options[]`. Each `download_url` answers `302` and redirects to the **original media file on the source CDN** — the bytes go source → disk, nothing is downloaded, muxed, merged or stored by the service. Whenever `direct_options` is non-empty the download **must** take that route: no `create_download`, no polling, no retention window.
 

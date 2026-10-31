@@ -46,6 +46,12 @@ The table below is a curated mainstream subset — the engine handles far more, 
 
 ## Download policy: direct first, relay only when a merge is required
 
+### Execution boundary
+
+All webpage resolution, stream selection, source-stream downloading, and muxing belongs to the remote SaveVideoKit MCP service. Never install or invoke local `yt-dlp`, `youtube-dl`, `ffmpeg`, or another media extractor as a fallback. Local `curl -L`, `wget`, PowerShell `Invoke-WebRequest`, or Python HTTP code may only transfer a final URL returned by `inspect_video` or `get_download_status`; never pass them the original video webpage URL.
+
+If the MCP tools are unavailable, stop and ask the user to enable the connector. The bundled `scripts/save_video.py` is the zero-dependency end-to-end fallback because it connects to the same remote MCP endpoint and enforces this policy in code.
+
 `inspect_video` decides per URL whether the source exposes a browser-safe progressive file and returns:
 
 - `direct_download_available` — boolean.
@@ -73,6 +79,8 @@ Call `create_download` **only** when a merge is physically unavoidable — the m
 | all `formats[].direct_eligible == false` | no single format qualifies |
 | `direct_reason: requires_headers` | the CDN only answers requests carrying the page's Referer/UA (e.g. TikTok) |
 | `direct_reason: not_mp4` | audio-only or an incompatible container; an mp4 must be produced |
+| `direct_reason: no_audio` | video-only adaptive stream; audio must be merged by the cloud service |
+| `direct_reason: no_video` | audio-only stream; it is not a complete video file |
 
 Everything else is a direct download. Relaying while a direct option exists wastes a queue slot and moves bytes the source already serves.
 

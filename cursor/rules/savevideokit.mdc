@@ -1,5 +1,5 @@
 ---
-description: Download and inspect public videos/audio via the SaveVideoKit remote MCP server (YouTube, TikTok, Instagram, X, Reddit, Vimeo, and 1000+ sites). Use when the user gives a public video/audio URL to save or inspect.
+description: Download and inspect public videos/audio via the SaveVideoKit remote MCP server (YouTube, TikTok, Instagram, X, Reddit, Vimeo, and 1000+ sites). Always use the remote MCP for extraction and merging; never install or run local yt-dlp or ffmpeg. Local programs may only save a final URL returned by the MCP.
 globs:
 alwaysApply: false
 ---
@@ -7,6 +7,14 @@ alwaysApply: false
 # SaveVideoKit — public video / audio download & inspect
 
 Use the `savevideokit` MCP server to download or inspect public videos/audio. No API key required.
+
+## Execution boundary — non-negotiable
+
+- The remote MCP is the only media resolver and muxer. Always start with `inspect_video`.
+- Never search for, clone, install, import, or execute local `yt-dlp`, `youtube-dl`, `ffmpeg`, or another media extractor, even when it is already installed.
+- Never give the original video webpage URL to `curl`, `wget`, PowerShell, or a Python HTTP client. A local HTTP client may receive only `direct_options[].download_url` or a successful job's `download_url`.
+- If the MCP tools are unavailable, tell the user to enable the connector. Do not replace it with a local media downloader.
+- Preferred end-to-end path: `python3 cursor/scripts/save_video.py "<public-video-url>" --output "<output-dir>"`. This zero-dependency runner speaks MCP directly and enforces the direct/cloud branch in code.
 
 ## Download policy — mandatory
 
@@ -21,6 +29,7 @@ inspect_video(url)
 - **DIRECT** is the default whenever it is offered: the URL redirects to the original media file, so nothing is downloaded, merged or stored by the service — no job, no polling, no retention race.
 - **RELAY** only when no complete single file exists: `direct_download_available == false`, `direct_options == []`, every `formats[].direct_eligible == false`, or reasons such as `requires_headers` (CDN tied to the page Referer/UA, e.g. TikTok) and `not_mp4` (audio-only / incompatible container). That is the "a merge is needed" case.
 - Never call `create_download` before reading the direct fields. Never relay "because the user wants an mp4" — a direct option already is a playable mp4. Never poll after a direct fetch.
+- Never install or use a local media extractor as fallback. If MP4 formats say `no_audio` and `direct_options` is empty, call the cloud `create_download` queue; do not merge locally.
 
 ## Tools
 - `inspect_video({url})` → metadata, formats, plus `direct_download_available` and `direct_options[]` (`{download_url, ext, resolution, width, height, filesize}`)
