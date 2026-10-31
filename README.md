@@ -68,11 +68,13 @@ python3 cli/savevideokit_cli.py --list-sites
 
 > Division of labor vs `scripts/download_file.py`: `savevideokit_cli.py` "speaks the MCP protocol and runs the full flow"; `download_file.py` only "fetches the bytes once a download_url is obtained". They can be used independently.
 
-## Critical download logic (must keep)
+## Download policy (must keep)
 
-**Direct first, job as fallback.** `inspect_video` reports `direct_download_available` / `direct_options[]`; each `download_url` answers `302` and redirects to the **original media file on the source CDN**, so nothing is downloaded, muxed, merged or stored by the service. Take the best option and save it right away — no `create_download`, no polling, no retention window.
+**1. Direct first.** `inspect_video` reports `direct_download_available` / `direct_options[]`. Each `download_url` answers `302` and redirects to the **original media file on the source CDN** — the bytes go source → disk, nothing is downloaded, muxed, merged or stored by the service. Whenever `direct_options` is non-empty the download **must** take that route: no `create_download`, no polling, no retention window.
 
-Only when no direct option exists does the fallback apply: `create_download` → poll `get_download_status` → the returned `download_url` is a **server-generated file retained for 30 minutes** (`file_retention_seconds = 1800`). Either way the MCP never writes to disk, so the workflow **must call `scripts/download_file.py` to persist the bytes** instead of handing the URL back to the user. If the URL expires (`expired`, or `403/404` on a direct link), obtain a fresh one — a new `create_download` job, or a new `inspect_video` call.
+**2. Relay only when a merge is unavoidable.** Call `create_download` only when the source exposes no complete single file and the service has to download + mux separate streams. The signals are explicit: `direct_download_available == false`, `direct_options == []`, every `formats[].direct_eligible == false`, or `direct_reason` of `requires_headers` (CDN bound to the page Referer/UA — typical of TikTok) or `not_mp4` (audio-only / incompatible container). Then the returned `download_url` is a server-generated file retained for **30 minutes** (`file_retention_seconds = 1800`).
+
+**3. Always save locally.** Either way the MCP never writes to disk, so the workflow must call `scripts/download_file.py` to persist the bytes instead of handing the URL back. If a link expires (`expired`, or `403/404` on a direct link), obtain a fresh one — a new `create_download` job, or a new `inspect_video` call. Never downgrade to relay just because a direct link expired.
 
 ## Installation
 

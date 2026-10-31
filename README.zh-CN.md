@@ -68,11 +68,13 @@ python3 cli/savevideokit_cli.py --list-sites
 
 > 与技能内 `scripts/download_file.py` 的分工：`savevideokit_cli.py` 负责「说 MCP 协议跑完整流程」；`download_file.py` 只负责「拿到 download_url 后把字节落盘」这一步。两者可独立使用。
 
-## 关键下载逻辑（务必保留）
+## 下载策略（务必保留）
 
-**优先直连，任务兜底。** `inspect_video` 会返回 `direct_download_available` / `direct_options[]`，其中的 `download_url` 以 `302` 跳转到**源站 CDN 上的原始媒体地址**，服务端不下载、不合并、不存储，直接取最优选项保存即可——无需 `create_download`、无需轮询、也没有保留期限。
+**1. 优先直连（默认）。** `inspect_video` 返回 `direct_download_available` / `direct_options[]`，其中的 `download_url` 以 `302` 跳转到**源站 CDN 上的原始媒体文件**——字节从源站直接到本地，服务端不下载、不合并、不存储。**只要 `direct_options` 非空就必须走这条路**：不建 `create_download`、不轮询、没有保留期限。
 
-只有在没有直连选项时才走兜底：`create_download` → 轮询 `get_download_status` → 返回的 `download_url` 是**服务端生成的文件，保留 30 分钟**（`file_retention_seconds = 1800`）。两种方式 MCP 都不会写本地磁盘，所以工作流**必须调用 `scripts/download_file.py` 把字节落盘**，不能只把链接返给用户；若链接过期（任务为 `expired`，直连为 `403/404`），重新获取即可——新建 `create_download` 任务，或重新调用 `inspect_video`。
+**2. 只有在必须合并时才走中转。** 仅当源站压根没有完整单文件、需要服务端下载并合并音视频流时才调用 `create_download`。触发信号是明确的：`direct_download_available == false`、`direct_options == []`、所有 `formats[].direct_eligible == false`，或 `direct_reason` 为 `requires_headers`（CDN 绑定页面 Referer/UA，TikTok 典型）或 `not_mp4`（纯音频 / 容器不兼容）。此时返回的 `download_url` 是服务端生成的文件，保留 **30 分钟**（`file_retention_seconds = 1800`）。
+
+**3. 无论如何都要落盘。** 两种方式 MCP 都不写本地磁盘，所以必须调用 `scripts/download_file.py` 把字节存下来，不能只把链接返给用户。链接过期时（任务 `expired`，直连 `403/404`）重新获取：新建 `create_download` 或重新 `inspect_video`——**不要因为直连过期就降级去走中转**。
 
 ## 安装
 

@@ -68,11 +68,13 @@ python3 cli/savevideokit_cli.py --list-sites
 
 > `scripts/download_file.py`와의 역할 분담: `savevideokit_cli.py`는 "MCP 프로토콜을 구사하며 전체 흐름을 실행"하고, `download_file.py`는 "download_url을 받은 후 바이트를 디스크에 저장"하는 단계만 담당합니다. 둘은 독립적으로 사용할 수 있습니다.
 
-## 핵심 다운로드 로직(반드시 유지)
+## 다운로드 정책(반드시 유지)
 
-**직접 다운로드 우선, 작업은 폴백.** `inspect_video`는 `direct_download_available` / `direct_options[]`를 반환하며, 그 `download_url`은 `302`로 **소스 CDN의 원본 미디어 URL**로 리디렉션됩니다. 서버 측 다운로드·병합·저장이 전혀 없으므로 최적 옵션을 곧바로 저장하면 끝입니다(`create_download`도, 폴링도, 보관 기한도 없음).
+**1. 직접 다운로드 우선(기본).** `inspect_video`는 `direct_download_available` / `direct_options[]`를 반환하고, 그 `download_url`은 `302`로 **소스 CDN의 원본 미디어 파일**로 리디렉션됩니다. 바이트는 소스에서 곧바로 로컬로 흐르며 서버 측 다운로드·병합·저장은 전혀 없습니다. **`direct_options`가 비어 있지 않다면 반드시 이 경로를 사용합니다**(`create_download`도, 폴링도, 보관 기한도 없음).
 
-직접 옵션이 없을 때만 폴백합니다: `create_download` → `get_download_status` 폴링 → 반환된 `download_url`은 **서버 생성 파일이며 30분간 보관**(`file_retention_seconds = 1800`). 어느 경로든 MCP는 디스크에 쓰지 않으므로 워크플로는 **반드시 `scripts/download_file.py`로 바이트를 저장**해야 하며, URL만 사용자에게 돌려주어서는 안 됩니다. 링크가 만료되면(작업은 `expired`, 직접 링크는 `403/404`) 새 `create_download` 작업 또는 `inspect_video` 재실행으로 다시 받으세요.
+**2. 병합이 불가피할 때만 중계를 사용한다.** 소스에 완전한 단일 파일이 없어 서버가 음성과 영상을 내려받아 병합해야 하는 경우에만 `create_download`를 호출합니다. 판단 신호는 명확합니다: `direct_download_available == false`, `direct_options == []`, 모든 `formats[].direct_eligible == false`, 또는 `direct_reason`이 `requires_headers`(CDN이 페이지 Referer/UA에 묶임, TikTok 전형) 또는 `not_mp4`(오디오 전용/호환되지 않는 컨테이너). 이때 반환되는 `download_url`은 서버 생성 파일이며 **30분** 보관됩니다(`file_retention_seconds = 1800`).
+
+**3. 어느 경로든 반드시 로컬에 저장한다.** MCP는 디스크에 쓰지 않으므로 `scripts/download_file.py`로 바이트를 저장해야 하며, URL만 사용자에게 돌려주어서는 안 됩니다. 링크가 만료되면(작업은 `expired`, 직접 링크는 `403/404`) 새 `create_download` 또는 `inspect_video` 재실행으로 다시 받으세요. **직접 링크 만료를 이유로 중계로 내려가지 마세요.**
 
 ## 설치
 

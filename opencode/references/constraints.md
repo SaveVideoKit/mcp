@@ -44,23 +44,37 @@ The table below is a curated mainstream subset — the engine handles far more, 
 
 > Not a whitelist. The engine supports 1000+ more (BBC, CNN, iQIYI, Hotstar, Bandcamp, …). If the URL is public, just try it.
 
-## Direct download (preferred path)
+## Download policy: direct first, relay only when a merge is required
 
 `inspect_video` decides per URL whether the source exposes a browser-safe progressive file and returns:
 
 - `direct_download_available` — boolean.
 - `direct_options[]` — `{option_id, download_url, format_id, ext, resolution, width, height, filesize}`.
-- `formats[].direct_eligible` / `direct_reason` — why a given format is or is not directly downloadable. Typical reasons: `requires_headers` (the CDN only serves the file to requests carrying the page's Referer/UA, e.g. TikTok) and `not_mp4` (audio-only or an incompatible container).
+- `formats[].direct_eligible` / `direct_reason` — why a given format is or is not directly downloadable.
+
+### Direct (default)
 
 `direct_options[].download_url` answers `302` and redirects to the **original media URL on the source CDN**. Nothing is queued, muxed, merged or stored by the service, so:
 
-- it is faster (no job, no polling, no remux step);
-- the file keeps the source's exact bytes and format;
-- there is no retention window to race against — only the signed link expiry.
+- the bytes are exactly what the source serves — no re-encode, no mux;
+- there is no job to poll and no retention window to race against, only the signed-link expiry;
+- it is the fastest path and it does not consume the service's download capacity.
 
-Pick the best option (highest `height` inside the user's quality cap), then save it with `--name "<title>" --ext "<option.ext>" --referer "<webpage_url>"`. Direct links carry no file suffix, so `--ext` (or the response `Content-Type`) is what determines the filename extension.
+Save it with `--name "<title>" --ext "<option.ext>" --referer "<webpage_url>"`. Direct links carry no file suffix, so `--ext` (or the response `Content-Type`) determines the extension.
 
-If `direct_download_available` is `false`, the source only offers separate adaptive streams: use `create_download`, which downloads and muxes them server-side.
+### Relay (only when the source has no complete single file)
+
+Call `create_download` **only** when a merge is physically unavoidable — the media exists as separate adaptive streams and the service must download and mux them. Triggering signals:
+
+| Signal | Meaning |
+|---|---|
+| `direct_download_available == false` | no browser-safe file was found |
+| `direct_options == []` | nothing is fetchable without a merge |
+| all `formats[].direct_eligible == false` | no single format qualifies |
+| `direct_reason: requires_headers` | the CDN only answers requests carrying the page's Referer/UA (e.g. TikTok) |
+| `direct_reason: not_mp4` | audio-only or an incompatible container; an mp4 must be produced |
+
+Everything else is a direct download. Relaying while a direct option exists wastes a queue slot and moves bytes the source already serves.
 
 ## create_download arguments
 - `url` (required): public video/audio URL.

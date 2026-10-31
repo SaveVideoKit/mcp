@@ -68,11 +68,13 @@ python3 cli/savevideokit_cli.py --list-sites
 
 > `scripts/download_file.py` との役割分担：`savevideokit_cli.py` は「MCP プロトコルを話して全体フローを実行」し、`download_file.py` は「download_url を取得した後のバイト列のディスク保存」のみを担います。両者は独立して利用可能です。
 
-## 重要なダウンロードロジック（必ず維持）
+## ダウンロード方針（必ず維持）
 
-**直接ダウンロードを優先し、ジョブはフォールバック。** `inspect_video` は `direct_download_available` / `direct_options[]` を返し、その `download_url` は `302` で**ソース CDN 上の元メディア URL** へリダイレクトされます。サーバー側のダウンロード・マージ・保存は一切ないため、最良のオプションをそのまま保存すれば完了です（`create_download` もポーリングも不要、保持期限もありません）。
+**1. 直接ダウンロードを優先（既定）。** `inspect_video` は `direct_download_available` / `direct_options[]` を返し、その `download_url` は `302` で**ソース CDN 上の元メディアファイル**へリダイレクトします。バイト列はソースから直接ローカルへ流れ、サーバー側のダウンロード・マージ・保存は一切ありません。**`direct_options` が空でない限り、必ずこの経路を使います**（`create_download` もポーリングも不要、保持期限もなし）。
 
-直接オプションがない場合のみフォールバックします：`create_download` → `get_download_status` のポーリング → 返る `download_url` は**サーバー生成ファイルで、保持は 30 分**（`file_retention_seconds = 1800`）。いずれの経路でも MCP はディスクに書き込まないため、ワークフローは **必ず `scripts/download_file.py` でバイト列を保存**し、URL だけをユーザーに返してはいけません。リンクが失効した場合（ジョブは `expired`、直接リンクは `403/404`）は、新しい `create_download` ジョブまたは `inspect_video` の再実行で取得し直してください。
+**2. マージが不可避な場合のみ中継を使う。** ソースに完全な単一ファイルがなく、サーバー側で音声と映像をダウンロード＋マージする必要がある場合に限り `create_download` を呼びます。判定材料は明確です：`direct_download_available == false`、`direct_options == []`、すべての `formats[].direct_eligible == false`、または `direct_reason` が `requires_headers`（CDN がページの Referer/UA に紐づく。TikTok が典型）や `not_mp4`（音声のみ／非対応コンテナ）。この場合に返る `download_url` はサーバー生成ファイルで、保持は **30 分**（`file_retention_seconds = 1800`）。
+
+**3. どの経路でも必ず保存する。** MCP はディスクに書き込まないため、`scripts/download_file.py` でバイト列を保存する必要があり、URL だけをユーザーに返してはいけません。リンクが失効した場合（ジョブは `expired`、直接リンクは `403/404`）は、新しい `create_download` または `inspect_video` の再実行で取り直します。**直接リンクの失効を理由に中継へ降格しないでください。**
 
 ## インストール
 
