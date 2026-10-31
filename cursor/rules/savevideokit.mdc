@@ -9,22 +9,24 @@ alwaysApply: false
 Use the `savevideokit` MCP server to download or inspect public videos/audio. No API key required.
 
 ## Tools
-- `inspect_video({url})` → metadata + available formats
-- `create_download({url, format?, quality?})` → `job_id`
-- `get_download_status({job_id})` → `{status, progress, download_url}`
-- `get_supported_sites({})` → supported platforms
+- `inspect_video({url})` → metadata + formats, plus `direct_download_available` and `direct_options[]` (`{download_url, ext, resolution, width, height, filesize}`)
+- `create_download({url, format?, quality?})` → `job_id` (only when no direct option exists)
+- `get_download_status({job_id})` → `{status, progress, download_url}`; generated files are kept 30 minutes
+- `get_supported_sites({})` → service/engine version + verified (32) / featured (33) / all sites (1735)
 
 ## Workflow
-1. (Optional) `inspect_video` to show title and formats.
-2. `create_download({url, format: "mp4"})`, parse `job_id`.
-3. Poll `get_download_status` every ~5s until `success` / `failed` / `expired`.
-4. On success, take `download_url` and **immediately save the bytes** with `scripts/download_file.py --name "<video title>"` so the file is saved under the video title (never a random id); the MCP only returns a URL and files are kept ~2h.
+1. `inspect_video` first, and read the title.
+2. **If `direct_options` is non-empty, use it — skip `create_download`.** The URL answers `302` to the original media file on the source CDN, so no server-side download, merge or storage is involved. Save it at once:
+   `scripts/download_file.py "<download_url>" "<dir>" --name "<title>" --ext "<option.ext>" --referer "<webpage_url>"`
+3. Only when no direct option exists: `create_download({url, format: "mp4"})`, parse `job_id`, poll `get_download_status` every ~5s until `success` / `failed` / `expired`, then save `download_url` with the same script.
+4. Always save under the video title (never a random id); the MCP only returns a URL and never writes to disk.
 5. Verify the saved file exists and size > 0.
 
 ## Limits
 - Public content only; no private/age-restricted/region-locked; no watermark removal; no playlists/batch.
 - No platform gate: any public URL can be attempted.
-- If a `download_url` expires, create a new `create_download` task.
+- Direct links are signed and expire — on `403`/`404`, re-run `inspect_video` instead of retrying the old URL.
+- A job `download_url` expires after ~30 minutes; then create a new `create_download` task.
 
 See `references/constraints.md` for details.
 

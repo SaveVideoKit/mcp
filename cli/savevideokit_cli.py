@@ -3,7 +3,14 @@
 """
 SaveVideoKit MCP client (zero dependencies, Python standard library only).
 
-Automates the full workflow: inspect -> create download -> poll status -> save file.
+Automates the full workflow and prefers the shortest path available:
+
+  1. Direct path (preferred): inspect_video returns direct_options[] - URLs that answer
+     302 and redirect straight to the original media file on the source CDN. Nothing is
+     queued, merged or stored on the server, so this is the fastest route.
+  2. Job path (fallback): create_download -> poll get_download_status -> save the
+     download_url, used only when the source exposes no browser-safe progressive file.
+     The generated file is retained for about 30 minutes.
 
 This is a thin Streamable HTTP client for the remote MCP endpoint:
     https://mcp.savevideokit.com/mcp
@@ -13,16 +20,19 @@ Examples:
     # 1) Inspect only (no download)
     python savevideokit_cli.py --inspect-only "https://www.youtube.com/shorts/xxxx"
 
-    # 2) Full flow: inspect + download + poll + save to ./downloads
+    # 2) Full flow: inspect + download (direct when possible) + save to ./downloads
     python savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
     python savevideokit_cli.py "https://www.youtube.com/watch?v=xxxx" --quality 1080p
 
-    # 3) List platforms verified by the service
+    # 3) Force the create_download job path even when a direct option exists
+    python savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
+
+    # 4) List platforms verified by the service
     python savevideokit_cli.py --list-sites
 
 Notes:
     - Public videos only; private/login/region-restricted content is unsupported; no watermark removal.
-    - The remote file is retained for only 2 hours; save it locally as soon as the download succeeds.
+    - Direct links are signed and expire; re-run inspect_video (or this script) for a fresh one.
 """
 
 import argparse
@@ -176,11 +186,18 @@ def _text_of(result):
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def _download_file(url, dest, timeout=180):
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+def _download_file(url, dest, timeout=180, referer=""):
+    """Stream a URL to disk. Redirects are followed, so a 302 to the origin CDN works."""
+    headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
     written = 0
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        total = int(resp.headers.get("Content-Length", 0) or 0)
+        try:
+            total = int(resp.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            total = 0
         with open(dest, "wb") as f:
             while True:
                 chunk = resp.read(65536)
@@ -189,6 +206,18 @@ def _download_file(url, dest, timeout=180):
                 f.write(chunk)
                 written += len(chunk)
     return written, total
+
+
+def _unique_path(path):
+    """Avoid clobbering an existing file: title.mp4 -> title (1).mp4."""
+    if not path.exists():
+        return path
+    i = 1
+    while True:
+        cand = path.with_name(f"{path.stem} ({i}){path.suffix}")
+        if not cand.exists():
+            return cand
+        i += 1
 
 
 def _sanitize(name, fallback="video"):
@@ -215,7 +244,9 @@ def _extract_title(info):
             if t:
                 return str(t).strip()
     text = _text_of(info)
-    m = re.search(r"(?im)^\s*(?:title|标题|タイトル|제목)\s*[:：]\s*(.+?)\s*$", text)
+    # Localized labels are written as escapes so the source stays ASCII-only:
+    # U+6807 U+9898 (zh), U+30BF U+30A4 U+30C8 U+30EB (ja), U+C81C U+BAA9 (ko), U+FF1A full-width colon.
+    m = re.search(r"(?im)^\s*(?:title|\u6807\u9898|\u30bf\u30a4\u30c8\u30eb|\uc81c\ubaa9)\s*[:\uff1a]\s*(.+?)\s*$", text)
     if m:
         return m.group(1).strip()
     m = re.search(r'"title"\s*:\s*"([^"]+)"', text)
@@ -246,6 +277,46 @@ def _derive_name_from_url(url):
     return "video"
 
 
+def _quality_cap(quality):
+    """Parse a quality cap such as '1080p' / '720' into an int height, else None."""
+    m = re.search(r"(\d{3,4})", str(quality or ""))
+    return int(m.group(1)) if m else None
+
+
+def _pick_direct_option(sc, quality="", fmt="mp4"):
+    """Choose the best direct option from inspect_video structuredContent.
+
+    Preference: highest resolution within the requested quality cap, then largest file.
+    Returns None when the source offers no direct option.
+    """
+    if not isinstance(sc, dict):
+        return None
+    opts = [o for o in (sc.get("direct_options") or [])
+            if isinstance(o, dict) and o.get("download_url")]
+    if not opts:
+        return None
+
+    if fmt and fmt.lower() not in ("mp4", "best"):
+        same = [o for o in opts if str(o.get("ext", "")).lower() == fmt.lower()]
+        if same:
+            opts = same
+
+    def height(o):
+        try:
+            return int(o.get("height") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    cap = _quality_cap(quality)
+    if cap:
+        within = [o for o in opts if 0 < height(o) <= cap]
+        if within:
+            opts = within
+
+    opts.sort(key=lambda o: (height(o), int(o.get("filesize") or 0)), reverse=True)
+    return opts[0]
+
+
 def cmd_list_sites(client):
     res = client.list_sites()
     print(_text_of(res))
@@ -256,45 +327,74 @@ def cmd_inspect(client, url):
     print(_text_of(res))
 
 
-def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout):
+def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout, allow_direct=True):
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[1/4] Inspecting video: {url}")
+    print(f"[1/3] Inspecting video: {url}")
     info = client.inspect(url)
-    text = _text_of(info)
-    print(text)
+    print(_text_of(info))
 
-    # Resolve a readable filename base from the video title (never a random id)
+    sc = info.get("structuredContent") if isinstance(info, dict) else {}
+    sc = sc if isinstance(sc, dict) else {}
+
+    # Readable filename base from the video title (never a random id)
     title = _extract_title(info)
+    base = _sanitize(title or _derive_name_from_url(url), "video")
     print("-" * 60)
 
-    print("[2/4] Creating download task ...")
+    # Preferred path: a direct option points at the original file on the source CDN.
+    option = _pick_direct_option(sc, quality, fmt) if allow_direct else None
+    if option:
+        ext = "." + str(option.get("ext") or "mp4").lstrip(".")
+        h = option.get("height") or 0
+        res = option.get("resolution") or (f"{h}p" if h else "source")
+        print(f"[2/3] Direct source URL available ({res}) - downloading from the origin, no queue or merge")
+        dest = _unique_path(out_dir / (base + ext))
+        try:
+            written, _ = _download_file(
+                option["download_url"], dest,
+                referer=sc.get("webpage_url") or url,
+            )
+        except urllib.error.HTTPError as e:
+            raise MCPError(
+                f"Direct download failed: HTTP {e.code}. The signed link may have expired - "
+                f"run the command again to obtain a fresh direct option.")
+        if written <= 0:
+            dest.unlink(missing_ok=True)
+            raise MCPError("Direct download produced an empty file; nothing was saved.")
+        print(f"      ✅ Saved: {dest}  ({written / 1024 / 1024:.2f} MB)")
+        print("      Fetched straight from the source CDN - the service stored nothing.")
+        return
+
+    if allow_direct:
+        print("[2/3] No direct source URL for this link - falling back to a download job ...")
+    else:
+        print("[2/3] Direct options skipped (--no-direct) - using a download job ...")
     created = client.create(url, fmt=fmt, quality=quality)
     created_sc = created.get("structuredContent", {}) if isinstance(created, dict) else {}
     job_id = created_sc.get("job_id") or created_sc.get("id")
     if not job_id:
         # Fall back to parsing the full text
-        import re
         m = re.search(r"job[_\s-]?id['\"]?\s*[:=]\s*['\"]?([\w-]+)", _text_of(created), re.I)
         job_id = m.group(1) if m else None
     if not job_id:
         raise MCPError(f"Could not obtain job_id, create returned:\n{_text_of(created)}")
     print(f"      Task created, job_id = {job_id}")
 
-    print("[3/4] Polling download status ...")
+    print("[3/3] Polling download status ...")
     deadline = time.time() + poll_timeout
     final = None
     while time.time() < deadline:
         time.sleep(poll_interval)
         st = client.status(job_id)
-        sc = st.get("structuredContent", {}) if isinstance(st, dict) else {}
-        status = sc.get("status") or "?"
-        progress = sc.get("progress")
+        st_sc = st.get("structuredContent", {}) if isinstance(st, dict) else {}
+        status = st_sc.get("status") or "?"
+        progress = st_sc.get("progress")
         prog = f" ({progress}%)" if isinstance(progress, (int, float)) else ""
         print(f"      status = {status}{prog}")
         if status == "success":
-            final = sc
+            final = st_sc
             break
         if status in ("failed", "error", "expired"):
             raise MCPError(f"Download failed: status={status}\n{_text_of(st)}")
@@ -305,22 +405,31 @@ def cmd_download(client, url, fmt, quality, out_dir, poll_interval, poll_timeout
     if not download_url:
         raise MCPError(f"Download succeeded but no download_url returned:\n{json.dumps(final, ensure_ascii=False)}")
 
-    print(f"[4/4] Downloading file -> {out_dir}/")
-    ext = ".mp4"
-    if "." in download_url.split("?")[0].split("/")[-1]:
-        ext = "." + download_url.split("?")[0].rsplit(".", 1)[-1].split("/")[-1][:8]
-    base = title or _derive_name_from_url(url)
-    fname = _sanitize(base, "video") + ext
-    dest = out_dir / fname
-    written, total = _download_file(download_url, dest)
-    size = written / 1024 / 1024
-    print(f"      ✅ Saved: {dest}  ({size:.2f} MB)")
-    print("      Note: the remote file is retained for only ~2 hours; use the local copy promptly.")
+    ext = next((o.get("ext") for o in (sc.get("direct_options") or [])
+                if isinstance(o, dict) and o.get("format_id") == final.get("format_id")), None)
+    if ext:
+        ext = "." + str(ext).lstrip(".")
+    else:
+        ext = ".mp4"
+        tail = download_url.split("?")[0].split("/")[-1]
+        if "." in tail:
+            cand = tail.rsplit(".", 1)[-1][:8]
+            if 2 <= len(cand) <= 9:
+                ext = "." + cand
+
+    dest = _unique_path(out_dir / (base + ext))
+    print(f"      Saving to {dest} ...")
+    written, _ = _download_file(download_url, dest)
+    if written <= 0:
+        dest.unlink(missing_ok=True)
+        raise MCPError("Download produced an empty file; nothing was saved.")
+    print(f"      ✅ Saved: {dest}  ({written / 1024 / 1024:.2f} MB)")
+    print("      Note: the generated file is retained for about 30 minutes; the local copy is yours.")
 
 
 def main():
     p = argparse.ArgumentParser(
-        description="SaveVideoKit MCP client: inspect -> download -> poll -> save",
+        description="SaveVideoKit MCP client: inspect -> direct download (preferred) or job -> save",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("url", nargs="?", help="Public video URL (mutually exclusive with --list-sites)")
@@ -329,6 +438,8 @@ def main():
     p.add_argument("--format", default="mp4", help="Output format mp4/best or a format selector (default mp4)")
     p.add_argument("--quality", default="", help="Upper quality bound, e.g. 1080p/720p/480p")
     p.add_argument("--output", default="./downloads", help="Output directory (default ./downloads)")
+    p.add_argument("--no-direct", action="store_true",
+                   help="Skip direct_options and always use the create_download job path")
     p.add_argument("--poll-interval", type=float, default=5.0, help="Poll interval in seconds (default 5)")
     p.add_argument("--poll-timeout", type=float, default=300.0, help="Poll timeout in seconds (default 300)")
     p.add_argument("--mcp-url", default=MCP_URL, help="MCP endpoint (defaults to the official address)")
@@ -349,6 +460,7 @@ def main():
             cmd_download(
                 client, args.url, args.format, args.quality,
                 args.output, args.poll_interval, args.poll_timeout,
+                allow_direct=not args.no_direct,
             )
     except MCPError as e:
         print(f"[Error] {e}", file=sys.stderr)

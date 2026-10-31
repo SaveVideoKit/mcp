@@ -1,6 +1,6 @@
 # SaveVideoKit
 
-**SaveVideoKit リモート MCP サービス**を通じて、公開動画（YouTube、TikTok、Instagram、Facebook、X/Twitter、Reddit、Vimeo、Dailymotion）をダウンロード／確認できます。API キーは不要です。本リポジトリはスキルと MCP 連携設定をマルチクライアント構成で整理しており、WorkBuddy、Codex、Claude Code、Cursor、opencode、dsh など各クライアントで再利用・拡張できます。
+**SaveVideoKit リモート MCP サービス**を通じて、公開動画（YouTube、TikTok、Instagram、Facebook、X/Twitter、Reddit、Vimeo、Dailymotion）をダウンロード／確認できます。API キーは不要です。ソースが直接ダウンロード可能なファイルを公開している場合、ダウンロードは**ソース CDN 上の元 URL へ直接**行われます（サーバー側でのダウンロード・マージ・保存は行いません）。本リポジトリはスキルと MCP 連携設定をマルチクライアント構成で整理しており、WorkBuddy、Codex、Claude Code、Cursor、opencode、dsh など各クライアントで再利用・拡張できます。
 
 ## リポジトリ構成
 
@@ -28,7 +28,7 @@ SaveVideoKit/
 │   ├── opencode.mcp.json
 │   └── dsh.mcp.json
 └── cli/                      # ★ スタンドアロン MCP クライアント（依存なし、MCP プロトコルを直接話す）
-    └── savevideokit_cli.py  # inspect→create→poll→保存、クライアントなしで単独実行可
+    └── savevideokit_cli.py  # inspect→直接ダウンロード（優先）またはジョブ→保存、単独実行可
 ```
 
 - `workbuddy/` が**唯一の正規ソース**です。他のクライアントディレクトリはそれを各クライアント向けに整形したものです（Cursor は `SKILL.md` ではなく `.mdc` ルールを使用）。
@@ -49,15 +49,18 @@ cp -r workbuddy ~/.workbuddy/skills/savevideokit
 
 ## スタンドアロン MCP クライアント（cli/、クライアントなしで利用可）
 
-`cli/savevideokit_cli.py` は**依存関係のない**（Python 標準ライブラリのみの）MCP Streamable HTTP クライアントです。クライアント側の MCP 連携なしで自律的に全体のフローを実行します：`initialize` ハンドシェイク → `inspect` / `create_download` / `get_download_status` ツール呼び出し → ローカル保存。コマンドラインでの直接利用や、まだ MCP を連携していないクライアントの下位ツールとして適しています。
+`cli/savevideokit_cli.py` は**依存関係のない**（Python 標準ライブラリのみの）MCP Streamable HTTP クライアントです。クライアント側の MCP 連携なしで自律的に全体のフローを実行します：`initialize` ハンドシェイク → `inspect_video` → **直接オプションがあれば直接ダウンロード**（なければ `create_download` + ポーリングにフォールバック）→ ローカル保存。コマンドラインでの直接利用や、まだ MCP を連携していないクライアントの下位ツールとして適しています。
 
 ```bash
 # 動画メタデータのみ確認
 python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=xxxx"
 
-# 全体フロー：確認 + 作成 + ポーリング + ./downloads へダウンロード
+# 全体フロー：確認 + ダウンロード（可能ならソース CDN から直接）→ ./downloads
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
+
+# 直接オプションがあっても create_download ジョブ経路を強制
+python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
 
 # 対応プラットフォーム一覧を表示
 python3 cli/savevideokit_cli.py --list-sites
@@ -67,7 +70,9 @@ python3 cli/savevideokit_cli.py --list-sites
 
 ## 重要なダウンロードロジック（必ず維持）
 
-SaveVideoKit MCP は **`download_url` のみを返し、ファイルをローカルに保存しません**。また、リモートファイルは約 2 時間しか保持されません。したがって `download_url` を取得した後、スキルワークフローは **直ちに `scripts/download_file.py` を呼び出してバイト列をディスクに保存** しなければならず、URL だけをユーザーに返してはいけません。URL の有効期限が切れた（`expired`）場合は、古いジョブを再ポーリングせず、新しい `create_download` ジョブを作成してください。
+**直接ダウンロードを優先し、ジョブはフォールバック。** `inspect_video` は `direct_download_available` / `direct_options[]` を返し、その `download_url` は `302` で**ソース CDN 上の元メディア URL** へリダイレクトされます。サーバー側のダウンロード・マージ・保存は一切ないため、最良のオプションをそのまま保存すれば完了です（`create_download` もポーリングも不要、保持期限もありません）。
+
+直接オプションがない場合のみフォールバックします：`create_download` → `get_download_status` のポーリング → 返る `download_url` は**サーバー生成ファイルで、保持は 30 分**（`file_retention_seconds = 1800`）。いずれの経路でも MCP はディスクに書き込まないため、ワークフローは **必ず `scripts/download_file.py` でバイト列を保存**し、URL だけをユーザーに返してはいけません。リンクが失効した場合（ジョブは `expired`、直接リンクは `403/404`）は、新しい `create_download` ジョブまたは `inspect_video` の再実行で取得し直してください。
 
 ## インストール
 

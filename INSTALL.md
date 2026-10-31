@@ -51,6 +51,12 @@ Confirm the `savevideokit` MCP server is registered and exposes the tools
 `inspect_video`, `create_download`, `get_download_status`, `get_supported_sites`.
 Then try: "download this video <URL>".
 
+A healthy `inspect_video` response contains `direct_download_available` and, when the
+source allows it, `direct_options[]`. That is the preferred path: the URL redirects to the
+original file on the source CDN, so the download needs no server-side job. If
+`direct_options` is empty the skill falls back to `create_download` — that is expected for
+sources that only publish separate adaptive streams.
+
 ## Notes per client
 
 - **Cursor**: rules live in `.cursor/rules/*.mdc`; MCP in `.cursor/mcp.json` (project) or

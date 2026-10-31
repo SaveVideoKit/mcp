@@ -1,6 +1,6 @@
 # SaveVideoKit
 
-通过 **SaveVideoKit 远端 MCP 服务**下载 / 查看公开视频（YouTube、TikTok、Instagram、Facebook、X/Twitter、Reddit、Vimeo、Dailymotion）。无需 API key。本仓库把技能与 MCP 接入配置整理为多客户端结构，便于在 WorkBuddy、Codex、Claude Code、Cursor、opencode、dsh 等客户端复用与扩展。
+通过 **SaveVideoKit 远端 MCP 服务**下载 / 查看公开视频（YouTube、TikTok、Instagram、Facebook、X/Twitter、Reddit、Vimeo、Dailymotion）。无需 API key。当源站提供可直接下载的文件时，下载会**直达源站 CDN 上的原始地址**——服务端不做下载、合并或存储。本仓库把技能与 MCP 接入配置整理为多客户端结构，便于在 WorkBuddy、Codex、Claude Code、Cursor、opencode、dsh 等客户端复用与扩展。
 
 ## 仓库结构
 
@@ -28,7 +28,7 @@ SaveVideoKit/
 │   ├── opencode.mcp.json
 │   └── dsh.mcp.json
 └── cli/                      # ★ 独立 MCP 客户端（零依赖，直接说 MCP 协议）
-    └── savevideokit_cli.py  # inspect→create→poll→落盘，可脱离任何客户端单独运行
+    └── savevideokit_cli.py  # inspect→直连下载（优先）或任务→落盘，可脱离任何客户端单独运行
 ```
 
 - `workbuddy/` 是**唯一规范来源**；其它客户端目录由它镜像、按各客户端格式组织（Cursor 用 `.mdc` 规则而非 `SKILL.md`）。
@@ -49,15 +49,18 @@ cp -r workbuddy ~/.workbuddy/skills/savevideokit
 
 ## 独立 MCP 客户端（cli/，可脱离客户端直接用）
 
-`cli/savevideokit_cli.py` 是一个**零依赖**（仅 Python 标准库）的 MCP Streamable HTTP 客户端，自己完成 `initialize` 握手 → `inspect` / `create_download` / `get_download_status` 工具调用 → 本地落盘，不需要任何客户端的 MCP 集成即可运行。适合直接命令行使用，或给尚未接入 MCP 的客户端当底层工具。
+`cli/savevideokit_cli.py` 是一个**零依赖**（仅 Python 标准库）的 MCP Streamable HTTP 客户端，自己完成 `initialize` 握手 → `inspect_video` → **有直连就直连下载**（没有才回退 `create_download` + 轮询）→ 本地落盘，不需要任何客户端的 MCP 集成即可运行。适合直接命令行使用，或给尚未接入 MCP 的客户端当底层工具。
 
 ```bash
 # 仅查看视频信息
 python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=xxxx"
 
-# 完整流程：检查 + 创建 + 轮询 + 下载到 ./downloads
+# 完整流程：检查 + 下载（能直连就直连源站 CDN）到 ./downloads
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
+
+# 即使有直连选项，也强制走 create_download 任务路径
+python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
 
 # 列出已验证支持的平台
 python3 cli/savevideokit_cli.py --list-sites
@@ -67,7 +70,9 @@ python3 cli/savevideokit_cli.py --list-sites
 
 ## 关键下载逻辑（务必保留）
 
-SaveVideoKit MCP **只返回 `download_url`，不会把文件存到本地**，且远端文件仅保留约 2 小时。因此技能工作流在「拿到 download_url」之后**必须立即调用 `scripts/download_file.py` 把字节落盘**，不能只把链接返给用户；若 URL 过期（`expired`）则重新 `create_download` 取得新任务。
+**优先直连，任务兜底。** `inspect_video` 会返回 `direct_download_available` / `direct_options[]`，其中的 `download_url` 以 `302` 跳转到**源站 CDN 上的原始媒体地址**，服务端不下载、不合并、不存储，直接取最优选项保存即可——无需 `create_download`、无需轮询、也没有保留期限。
+
+只有在没有直连选项时才走兜底：`create_download` → 轮询 `get_download_status` → 返回的 `download_url` 是**服务端生成的文件，保留 30 分钟**（`file_retention_seconds = 1800`）。两种方式 MCP 都不会写本地磁盘，所以工作流**必须调用 `scripts/download_file.py` 把字节落盘**，不能只把链接返给用户；若链接过期（任务为 `expired`，直连为 `403/404`），重新获取即可——新建 `create_download` 任务，或重新调用 `inspect_video`。
 
 ## 安装
 

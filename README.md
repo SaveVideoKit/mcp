@@ -1,6 +1,6 @@
 # SaveVideoKit
 
-Download / inspect public videos (YouTube, TikTok, Instagram, Facebook, X/Twitter, Reddit, Vimeo, Dailymotion) via the **SaveVideoKit remote MCP service**. No API key required. This repository organizes the skill and MCP integration config into a multi-client layout, so it can be reused and extended across WorkBuddy, Codex, Claude Code, Cursor, opencode, dsh and other clients.
+Download / inspect public videos (YouTube, TikTok, Instagram, Facebook, X/Twitter, Reddit, Vimeo, Dailymotion) via the **SaveVideoKit remote MCP service**. No API key required. When the source exposes a browser-safe file, the download goes **straight to the original URL on the source CDN** — no server-side download, merge or storage. This repository organizes the skill and MCP integration config into a multi-client layout, so it can be reused and extended across WorkBuddy, Codex, Claude Code, Cursor, opencode, dsh and other clients.
 
 ## Repository structure
 
@@ -28,7 +28,7 @@ SaveVideoKit/
 │   ├── opencode.mcp.json
 │   └── dsh.mcp.json
 └── cli/                      # ★ Standalone MCP client (zero deps, speaks the MCP protocol directly)
-    └── savevideokit_cli.py  # inspect→create→poll→save; runs standalone without any client
+    └── savevideokit_cli.py  # inspect→direct download (preferred) or job→save; runs standalone
 ```
 
 - `workbuddy/` is the **single source of truth**; the other client folders mirror it, formatted for each client (Cursor uses a `.mdc` rule instead of `SKILL.md`).
@@ -49,15 +49,18 @@ See each client directory's `README.md` for other clients.
 
 ## Standalone MCP client (cli/, usable without any client)
 
-`cli/savevideokit_cli.py` is a **zero-dependency** (Python standard library only) MCP Streamable HTTP client. It performs the full flow on its own: `initialize` handshake → `inspect` / `create_download` / `get_download_status` tool calls → local save, with no client-side MCP integration required. It is suitable for direct command-line use, or as a low-level tool for clients that have not integrated MCP yet.
+`cli/savevideokit_cli.py` is a **zero-dependency** (Python standard library only) MCP Streamable HTTP client. It performs the full flow on its own: `initialize` handshake → `inspect_video` → **direct download when the source offers one** (or `create_download` + polling as a fallback) → local save, with no client-side MCP integration required. It is suitable for direct command-line use, or as a low-level tool for clients that have not integrated MCP yet.
 
 ```bash
 # Inspect video metadata only
 python3 cli/savevideokit_cli.py --inspect-only "https://www.youtube.com/watch?v=xxxx"
 
-# Full flow: inspect + create + poll + download to ./downloads
+# Full flow: inspect + download (straight from the source CDN when possible) to ./downloads
 python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456"
 python3 cli/savevideokit_cli.py "https://youtu.be/xxxx" --quality 1080p
+
+# Force the create_download job path even if a direct option exists
+python3 cli/savevideokit_cli.py "https://www.tiktok.com/@user/video/123456" --no-direct
 
 # List verified supported platforms
 python3 cli/savevideokit_cli.py --list-sites
@@ -67,7 +70,9 @@ python3 cli/savevideokit_cli.py --list-sites
 
 ## Critical download logic (must keep)
 
-The SaveVideoKit MCP **only returns a `download_url`; it does not store the file locally**, and the remote file is retained for only ~2 hours. Therefore, after obtaining the `download_url`, the skill workflow **must immediately call `scripts/download_file.py` to persist the bytes to disk** — do not just hand the URL back to the user. If the URL expires (`expired`), create a fresh `create_download` task instead of re-polling the old one.
+**Direct first, job as fallback.** `inspect_video` reports `direct_download_available` / `direct_options[]`; each `download_url` answers `302` and redirects to the **original media file on the source CDN**, so nothing is downloaded, muxed, merged or stored by the service. Take the best option and save it right away — no `create_download`, no polling, no retention window.
+
+Only when no direct option exists does the fallback apply: `create_download` → poll `get_download_status` → the returned `download_url` is a **server-generated file retained for 30 minutes** (`file_retention_seconds = 1800`). Either way the MCP never writes to disk, so the workflow **must call `scripts/download_file.py` to persist the bytes** instead of handing the URL back to the user. If the URL expires (`expired`, or `403/404` on a direct link), obtain a fresh one — a new `create_download` job, or a new `inspect_video` call.
 
 ## Installation
 
